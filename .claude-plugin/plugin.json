@@ -1,5 +1,6 @@
 {
   "name": "quickshell",
+  "version": "0.1.0",
   "description": "QuickShell skill for Claude Code — QML desktop shell framework reference",
   "author": {
     "name": "Hicham Bouchikhi"
