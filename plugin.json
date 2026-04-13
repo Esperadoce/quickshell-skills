@@ -1,0 +1,6 @@
+{
+  "name": "quickshell",
+  "version": "0.1.0",
+  "description": "Skills for building desktop shells and widgets with QuickShell (QML-based shell framework for Linux/Wayland).",
+  "skills": ["./skills/"]
+}
