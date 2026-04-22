@@ -38,6 +38,7 @@ QuickShell is a QML-based framework for building custom desktop shells — bars,
 | Reload running instance | `quickshell --reload` |
 | LSP support | Create empty `.qmlls.ini` next to `shell.qml`; QuickShell auto-fills it |
 | Set env vars in config | `//@ pragma Env VAR=value` at the top of `shell.qml` |
+| Enable platform menus | `//@ pragma UseQApplication` at the top of `shell.qml` — **required** for `QsMenuAnchor.open()` (system tray context menus, right-click menus). Restart QuickShell after adding; `--reload` is not enough. |
 
 ---
 
@@ -527,6 +528,10 @@ import QtQuick.Layouts
 | `PanelWindow` | Panel attached to screen edges; reserves screen space |
 | `FloatingWindow` | Standard OS window |
 | `PopupWindow` | Temporary popup; position with `PopupAnchor` |
+| `PopupAnchor` | Anchor spec used by `PopupWindow` / `QsMenuAnchor`; properties: `window`, `item`, `rect`, `edges` (see `Edges`), `gravity`, `adjustment` |
+| `Edges` | Flag enum for anchor edges: `Edges.Top`, `Edges.Bottom`, `Edges.Left`, `Edges.Right`. Combinable with `\|` |
+| `QsMenuAnchor` | Displays a `QsMenuHandle` (e.g. `SystemTrayItem.menu`) as a platform menu. Set `menu` + `anchor.item`/`anchor.edges`, then call `open()`. Requires `//@ pragma UseQApplication` |
+| `QsMenuHandle` | Opaque handle returned by services (tray menus, etc.); cannot be shown directly — pass to a `QsMenuAnchor` |
 | `Variants` | Spawns one component instance per model entry |
 | `LazyLoader` | Load/unload a component on demand via `active` |
 | `BoundComponent` | Component loader with initial properties |
@@ -601,8 +606,64 @@ Refresh methods: `Hyprland.refreshWorkspaces()`, `Hyprland.refreshMonitors()`, `
 | Type | Purpose |
 |------|---------|
 | `SystemTray` | Entry point; `SystemTray.items` |
-| `SystemTrayItem` | `icon`, `tooltip`, `menu`, `activate()` |
+| `SystemTrayItem` | `icon`, `tooltip`, `title`, `status`, `category`, `hasMenu`, `onlyMenu`, `menu` (→ `QsMenuHandle`), `activate()`, `secondaryActivate()`, `scroll(delta, horizontal)` |
 | `Status` | `Active`, `Passive`, `NeedsAttention` |
+
+**Opening a tray item's context menu.** `SystemTrayItem.menu` is a `QsMenuHandle` — calling `.open()` on it directly does nothing. You must display it via a `QsMenuAnchor` (from `Quickshell`). Also requires `//@ pragma UseQApplication` in `shell.qml`.
+
+```qml
+pragma ComponentBehavior: Bound
+import Quickshell
+import Quickshell.Widgets
+import Quickshell.Services.SystemTray
+import QtQuick
+
+Row {
+    QsMenuAnchor { id: menuAnchor }
+
+    Repeater {
+        model: SystemTray.items
+        delegate: Rectangle {
+            id: item
+            required property SystemTrayItem modelData
+            width: 28; height: 24
+
+            IconImage { anchors.centerIn: parent; source: item.modelData.icon; implicitSize: 16 }
+
+            MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+                onClicked: mouse => {
+                    if (mouse.button === Qt.LeftButton) {
+                        if (item.modelData.onlyMenu && item.modelData.hasMenu) {
+                            menuAnchor.menu = item.modelData.menu
+                            menuAnchor.anchor.item = item
+                            menuAnchor.anchor.edges = Edges.Bottom
+                            menuAnchor.open()
+                        } else {
+                            item.modelData.activate()
+                        }
+                    } else if (mouse.button === Qt.MiddleButton) {
+                        item.modelData.secondaryActivate()
+                    } else if (mouse.button === Qt.RightButton && item.modelData.hasMenu) {
+                        menuAnchor.menu = item.modelData.menu
+                        menuAnchor.anchor.item = item
+                        menuAnchor.anchor.edges = Edges.Bottom
+                        menuAnchor.open()
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+Key pieces:
+- One shared `QsMenuAnchor` per widget — reassign `menu` and `anchor` on each click.
+- `anchor` is a `PopupAnchor`: set `anchor.item` (the clicked delegate) and `anchor.edges` (from the `Edges` enum: `Edges.Top`, `Edges.Bottom`, `Edges.Left`, `Edges.Right`, combinable with `|`).
+- Right-click convention opens the menu; left-click usually calls `activate()`. Check `onlyMenu` for icons that have no activate action (e.g. some indicator applets).
+- Without `//@ pragma UseQApplication` you get: `Cannot call QsMenuAnchor.open() as quickshell was not started in QApplication mode.`
 
 ### `Quickshell.Services.Pipewire`
 
@@ -715,6 +776,9 @@ quickshell -p shell.qml
 | No LSP / autocomplete in editor | Create empty `.qmlls.ini` next to `shell.qml` |
 | State lost on `--reload` | Use `PersistentProperties` with `reloadableId` |
 | Binding loop warnings | Break cycles with explicit `onXxxChanged` handlers instead of two-way bindings |
+| `HoverHandler.containsMouse` silently never fires | `HoverHandler` exposes `hovered` (and `onHoveredChanged`). `containsMouse` belongs to `MouseArea` — both compile, only one works per type |
+| `QsMenuAnchor.open()` fails with "not started in QApplication mode" | Add `//@ pragma UseQApplication` at top of `shell.qml` and **restart** QuickShell (not `--reload`) |
+| Tray item `.menu.open()` does nothing | `SystemTrayItem.menu` is a `QsMenuHandle`, not a widget. Display it via a `QsMenuAnchor` with `menu`, `anchor.item`, `anchor.edges` (then `open()`) |
 
 ---
 
